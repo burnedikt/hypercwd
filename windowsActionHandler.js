@@ -31,7 +31,7 @@ module.exports = ({ dispatch }) => next => (action) => {
         pid: action.pid,
       };
       curTabId = action.uid;
-      windowsSetCwd({ dispatch, action, tab: tabs[action.uid], curTabId });
+      windowsSetCwd({ dispatch, action, tab: tabs[action.activeUid] });
       break;
     case 'SESSION_SET_ACTIVE':
       curTabId = action.uid;

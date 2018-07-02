@@ -37,9 +37,10 @@ var isGitBashExecutable = (executablePath) => {
  * @param {int} wrapperPid the process id (PID) of the wrapping process (git-cmd / git-bash)
  */
 var getBashProcessFromWrapperPid = async (wrapperPid) => {
+  console.log(wrapperPid);
   const processes = await promiseProcessGet({
     where: { parentprocessid: wrapperPid },
-    get: ['name', 'executablePath', 'processid']
+    get: ['name', 'executablePath', 'processid', 'parentprocessid']
   });
 
   // if there's more than one subprocess, select the first one running "bash.exe"
@@ -52,10 +53,12 @@ var getBashProcessFromWrapperPid = async (wrapperPid) => {
   return bashProcess;
 };
 
-const windowsSetCwd = ({ dispatch, action, tab, curTabId }) => {
+const windowsSetCwd = ({ dispatch, action, tab }) => {
+
+  if (!tab) return;
 
   var setCwd = (cwd) => {
-    if (tab.cwd !== cwd && action.uid === curTabId) {
+    if (tab.cwd !== cwd) {
       dispatch({
         type: 'SESSION_SET_CWD',
         cwd,
@@ -67,23 +70,23 @@ const windowsSetCwd = ({ dispatch, action, tab, curTabId }) => {
   // check if we're in git bash case since we need to handle this case
   // specifically to get the current shell's cwd. Otherwise use the default logic
   if (isGitBashExecutable(action.shell)) {
-    console.log("Git bash found!");
-
     // In order to find the cwd of a running bash process we'll first need to find
     // the actual pid as known by mingw/msys/cygwin from the pid that we've got from
     // hyper which is the pid of the "wrapping" *.exe process
-    getBashProcessFromWrapperPid(action.pid).then(process => {
-      console.log(process);
-
+    getBashProcessFromWrapperPid(tab.pid).then(process => {
       // now get the actual cwd for this process using the /proc virtual directory
       // in the same folder where the bash excecutable resides, there should be the readlink command
       // we'll use readlink to find out what the current cwd is for the given process
       var executableDirectory = path.dirname(path.resolve(process.ExecutablePath));
       const readlinkExecutablePath = path.join(executableDirectory, "readlink.exe");
-      console.log(readlinkExecutablePath);
-      promiseExec(`"${readlinkExecutablePath}" -e /proc/${process.ProcessId}/cwd`).then(stdout => {
-        setCwd(stdout);
-      });
+      const cygpathExecutablePath = path.join(executableDirectory, "cygpath.exe");
+      promiseExec(`"${readlinkExecutablePath}" -e /proc/${process.ProcessId}/cwd`)
+        .then(unixCwd => {
+          return promiseExec(`"${cygpathExecutablePath}" --dos ${unixCwd}`);
+        })
+        .then(windowsCwd => {
+          setCwd(windowsCwd);
+        });
     });
   } else {
     const newCwd = directoryRegex.exec(action.data);
